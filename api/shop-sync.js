@@ -28,12 +28,13 @@ function asArr(v) {
 function slimOrder(o) {
   if (!o || typeof o !== "object") return null;
   let copy = Object.assign({}, o);
-  ["proof", "proofDataUrl", "orderHtml"].forEach((k) => {
-    if (typeof copy[k] === "string" && copy[k].indexOf("data:image") === 0) delete copy[k];
+  if (typeof copy.orderHtml === "string" && copy.orderHtml.length > 4000) delete copy.orderHtml;
+  ["proof", "proofDataUrl"].forEach((k) => {
+    if (typeof copy[k] === "string" && copy[k].indexOf("data:image") === 0 && copy[k].length > 350000) delete copy[k];
   });
   if (copy.payment && typeof copy.payment === "object") {
     copy.payment = Object.assign({}, copy.payment);
-    if (typeof copy.payment.proofImageBase64 === "string" && copy.payment.proofImageBase64.indexOf("data:image") === 0) {
+    if (typeof copy.payment.proofImageBase64 === "string" && copy.payment.proofImageBase64.length > 350000) {
       delete copy.payment.proofImageBase64;
     }
   }
@@ -57,7 +58,16 @@ function mergeEdits(remote, local) {
     let win = ls >= rs ? l : r;
     let hidden = ls !== rs ? asArr(win.hiddenKeys).slice() : Array.from(new Set([...asArr(r.hiddenKeys), ...asArr(l.hiddenKeys)]));
     let extra = ls !== rs ? asArr(win.extraImages).slice() : Array.from(new Set([...asArr(r.extraImages), ...asArr(l.extraImages)]));
-    out[id] = Object.assign({}, r, l, win, { hiddenKeys: hidden, extraImages: extra });
+    let base = ls !== rs ? Object.assign({}, win) : Object.assign({}, r, l, win);
+    let keys = null;
+    if (ls !== rs) keys = Array.isArray(win.imageKeys) ? win.imageKeys.slice() : null;
+    else if (Array.isArray(l.imageKeys)) keys = l.imageKeys.slice();
+    else if (Array.isArray(r.imageKeys)) keys = r.imageKeys.slice();
+    base.hiddenKeys = hidden;
+    base.extraImages = extra;
+    if (keys) base.imageKeys = keys;
+    else delete base.imageKeys;
+    out[id] = base;
   });
   return out;
 }
@@ -83,6 +93,18 @@ function shrinkSnap(snap) {
     });
     if (!best) break;
     best.clear();
+  }
+  while (JSON.stringify(snap).length > 700000) {
+    let big = null;
+    asArr(snap.orders).forEach((o) => {
+      if (!o || !o.payment) return;
+      let img = o.payment.proofImageBase64;
+      if (typeof img === "string" && img.length > 20000 && (!big || img.length > big.len)) {
+        big = { len: img.length, clear: () => { delete o.payment.proofImageBase64; } };
+      }
+    });
+    if (!big) break;
+    big.clear();
   }
   asArr(snap.customProducts).forEach((p) => {
     if (Array.isArray(p.images)) p.images = p.images.filter(Boolean);
